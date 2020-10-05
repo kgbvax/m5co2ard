@@ -16,7 +16,7 @@
 
 //not in SCM, provide your own defining WIFI_SSID, WIFI_PASSWORD
 #include "envs.h"
-#include "version.h"
+#include "Version.h"
 
 //we dweet right now
 //#include "dweet.h"
@@ -93,7 +93,7 @@ int co2_level_now = LEVEL_NORMAL;
 
 #define TRIANGLE(x1,y1,x2,y2 ,x3,y3) M5.Lcd.fillTriangle(pad+(x1),pad+(y1),pad+(x2),pad+(y2),pad+(x3),pad+(y3), WHITE)
 void drawM() {
-  const int pad=4; 
+  const int pad=8; 
   const int my = M5.Lcd.height()-pad*2;
   const int mx = M5.Lcd.width()-pad*2;
  
@@ -115,8 +115,9 @@ void displaySwStats() {
   uint8_t mac[6];
   esp_efuse_mac_get_default(mac);
   char macBuf[20]; //xx-xx-xx-xx-xx-xx
+  
   sprintf(macBuf, "%x-%x-%x-%x-%x-%x", (unsigned int)mac[0], (unsigned int)mac[1], (unsigned int)mac[2], (unsigned int)mac[3], (unsigned int)mac[4], (unsigned int)mac[5]);
-  macStr = String(macBuf);
+  String macStr = String(macBuf);
   M5.Lcd.setTextSize(2);
   Serial.println("MAC: " + macStr);
   M5.Lcd.println("MAC: " + macStr);
