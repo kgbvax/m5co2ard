@@ -4,6 +4,8 @@
 
 //I/O
 #include "SparkFun_SCD30_Arduino_Library.h"
+#include "MutichannelGasSensor.h"
+#undef DEFAULT_I2C_ADDR
 #include <Tomoto_HM330X.h> 
 #include <FastLED.h>
 
@@ -14,6 +16,7 @@
 
 //not in SCM, provide your own defining WIFI_SSID, WIFI_PASSWORD
 #include "envs.h"
+#include "version.h"
 
 //we dweet right now
 //#include "dweet.h"
@@ -88,6 +91,45 @@ int elapsed_time = 0;
 int co2_level_last = LEVEL_NORMAL;
 int co2_level_now = LEVEL_NORMAL;
 
+#define TRIANGLE(x1,y1,x2,y2 ,x3,y3) M5.Lcd.fillTriangle(pad+(x1),pad+(y1),pad+(x2),pad+(y2),pad+(x3),pad+(y3), WHITE)
+void drawM() {
+  const int pad=4; 
+  const int my = M5.Lcd.height()-pad*2;
+  const int mx = M5.Lcd.width()-pad*2;
+ 
+  TRIANGLE(0,my/2,mx/2,my/2,mx/4, 0); // ▲ Links
+  TRIANGLE(mx/2,my/2,mx/2+mx/4,0,mx, my/2); // ▲ Rechts
+  TRIANGLE(0,my/2,mx/8,my-my/4, mx/4,my/2); // ▾ Links
+  TRIANGLE(mx-(mx/4),my/2,mx,my/2,mx-(mx/8),my-my/4); // ▾ Rechts
+  TRIANGLE(mx/4,my/2,mx/2,my, mx-(mx/4),my/2); // ▼
+}
+
+void displaySwStats() {
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0,2);
+  M5.Lcd.setTextSize(1);
+  esp_chip_info_t ci;
+  esp_chip_info(&ci);
+  Serial.println("chip model " + String(ci.model));
+  Serial.println("chip revision " + String(ci.revision));
+  uint8_t mac[6];
+  esp_efuse_mac_get_default(mac);
+  char macBuf[20]; //xx-xx-xx-xx-xx-xx
+  sprintf(macBuf, "%x-%x-%x-%x-%x-%x", (unsigned int)mac[0], (unsigned int)mac[1], (unsigned int)mac[2], (unsigned int)mac[3], (unsigned int)mac[4], (unsigned int)mac[5]);
+  macStr = String(macBuf);
+  M5.Lcd.setTextSize(2);
+  Serial.println("MAC: " + macStr);
+  M5.Lcd.println("MAC: " + macStr);
+  Serial.println("Version: " + String(VERSION));
+  M5.Lcd.println("Version: " + String(VERSION));
+  M5.Lcd.setTextSize(1);
+  Serial.println("MD5: " + EspClass().getSketchMD5());
+  M5.Lcd.println("MD5: " + EspClass().getSketchMD5());
+  Serial.println("Build timestamp: " + String(BUILD_TIMESTAMP));
+  M5.Lcd.println("Build timestamp:  " + String(BUILD_TIMESTAMP));
+  M5.Lcd.println("configured SSID: " + String(ssid));
+}
+
 uint16_t getColor(uint8_t red, uint8_t green, uint8_t blue)
 {
     return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
@@ -148,6 +190,14 @@ void setup()
 
     M5.begin();
     M5.Power.begin();
+    drawM();
+    delay(3000);
+#ifdef MULTICHANNEL_GAS
+    gas.begin(0x04);//the default I2C address of the slave is 0x04
+    gas.powerOff();
+    Serial.print("Firmware Version = ");
+    Serial.println(gas.getVersion());
+#endif
 
     M5.Lcd.fillScreen(TFT_BLACK);
     M5.Lcd.setCursor(0, 0);
@@ -305,6 +355,7 @@ void updateDisplay()
     graph_co2.scroll(-1, 0);
 }
 
+
 void doDweet()
 {
     StaticJsonDocument<512> doc;
@@ -340,6 +391,56 @@ void doDweet()
     http.POST(output.c_str());
 }
 
+void printGasSensor(){
+     float c;
+    c = gas.measure_NH3();
+    Serial.print("The concentration of NH3 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_CO();
+    Serial.print("The concentration of CO is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_NO2();
+    Serial.print("The concentration of NO2 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_C3H8();
+    Serial.print("The concentration of C3H8 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_C4H10();
+    Serial.print("The concentration of C4H10 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_CH4();
+    Serial.print("The concentration of CH4 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_H2();
+    Serial.print("The concentration of H2 is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+ 
+    c = gas.measure_C2H5OH();
+    Serial.print("The concentration of C2H5OH is ");
+    if(c>=0) Serial.print(c);
+    else Serial.print("invalid");
+    Serial.println(" ppm");
+}
 void loop()
 {
     if (airSensor.dataAvailable())
@@ -370,6 +471,7 @@ void loop()
     }
     else
         Serial.print(".");
+ //   printGasSensor();    
     printPMSensor();
     feedWatchdog();
     doDweet();
