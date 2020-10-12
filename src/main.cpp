@@ -86,12 +86,12 @@ const char *password{WIFI_PASSWORD}; // write your WiFi password
 //const String dweetThingName = "ottermuehle-co2ampel-2";
 
 const int watchdogTimeoutUs = 15 * 1000 * 1000; //in usec
-const int loopDelay = 5*1000;             //main loop() delay in msec
+const int loopDelay = 5 * 1000;                 //main loop() delay in msec
+const uint8_t uploadEvery = 3;
+uint8_t loopCnt = 0;
 
 // sensor setting
 SCD30 airSensor;
-#define SENSOR_INTERVAL_S 2  // get sensor value every SENSOR_INTERVAL_S [s]
-#define UPLOAD_INTERVAL_S 60 // upload data to Ambient every UPLOAD_INTERVAL_S [s]
 
 // TFT setting
 #define SPRITE_WIDTH 320
@@ -125,7 +125,7 @@ int co2_level_now = LEVEL_NORMAL;
 String macStr;
 
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
-Point influxSensor=Point("co2ard");
+Point influxSensor = Point("co2ard");
 
 #define TRIANGLE(x1, y1, x2, y2, x3, y3, col) M5.Lcd.fillTriangle(pad + (x1), pad + (y1), pad + (x2), pad + (y2), pad + (x3), pad + (y3), col)
 void drawM(int pad, u16_t color)
@@ -154,9 +154,7 @@ void displaySwStats()
     esp_chip_info(&ci);
 
     disp("core " + String(xPortGetCoreID()));
-    
 
-   
     M5.Lcd.setTextSize(2);
     disp("MAC: " + macStr);
     disp("Version: " + String(VERSION));
@@ -269,7 +267,7 @@ void meepmeep()
     Serial.println("mp3 play stop");
     file->close();
     SPIFFS.end();
-    
+
 #endif
 }
 
@@ -307,7 +305,7 @@ void setup()
         prev = pad;
     }
     feedWatchdog();
-    
+
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     char macBuf[20]; //xx-xx-xx-xx-xx-xx
@@ -315,7 +313,7 @@ void setup()
     macStr = String(macBuf);
 
     displaySwStats();
-   // meepmeep();
+    // meepmeep();
     feedWatchdog();
 
     delay(3000);
@@ -347,17 +345,20 @@ void setup()
     Serial.print(WiFi.localIP());
     feedWatchdog();
     //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    timeSync(TZ,"europe.pool.ntp.org","pool.ntp.org", "time.nis.gov");
-    if(!client.validateConnection()) {
-        bailOut("Cant connect InfluxDB"); 
-    } else {
-       Serial.println("influx cl status code "+ String(client.getLastStatusCode()) );
+    timeSync(TZ, "europe.pool.ntp.org", "pool.ntp.org", "time.nis.gov");
+    if (!client.validateConnection())
+    {
+        bailOut("Cant connect InfluxDB");
     }
-    
+    else
+    {
+        Serial.println("influx cl status code " + String(client.getLastStatusCode()));
+    }
+
     influxSensor.addTag("mac", macStr);
     influxSensor.addTag("SSID", WiFi.SSID());
-    influxSensor.addTag("version",VERSION);
-    
+    influxSensor.addTag("version", VERSION);
+
     if (!Wire.begin())
     {
         bailOut("i2c init failed, resetting");
@@ -380,14 +381,9 @@ void setup()
     }
     airSensor.setMeasurementInterval(5);
     airSensor.setAltitudeCompensation(50);
-     
-    airSensor.setTemperatureOffset(0);
-   // airSensor.setAutoSelfCalibration(true);
-    float offset = airSensor.getTemperatureOffset();
 
-    
-    M5.Lcd.println("done");
-    delay(50);
+    airSensor.setTemperatureOffset(0);
+    airSensor.setAutoSelfCalibration(true);
 
     M5.Lcd.fillScreen(TFT_BLACK);
     graph_co2.setColorDepth(8);
@@ -424,35 +420,27 @@ void printPMSensor()
 {
     if (pMSensor != NULL)
     {
-        if (!pMSensor->readSensor())
-        {
-            Serial.println("Failed to read HM330X");
-        }
-        else
-        {
-            printValue("Sensor number", pMSensor->getSensorNumber());
 
-            Serial.println("Concentration based on CF=1 standard particlate matter (ug/m^3) --");
-            printValue("PM1.0", pMSensor->std.getPM1());
-            printValue("PM2.5", pMSensor->std.getPM2_5());
-            printValue("PM10", pMSensor->std.getPM10());
+        Serial.println("Concentration based on CF=1 standard particlate matter (ug/m^3) --");
+        printValue("PM1.0", pMSensor->std.getPM1());
+        printValue("PM2.5", pMSensor->std.getPM2_5());
+        printValue("PM10", pMSensor->std.getPM10());
 
-            Serial.println("Concentration based on atmospheric environment (ug/m^3) --");
-            printValue("PM1.0", pMSensor->atm.getPM1());
-            printValue("PM2.5", pMSensor->atm.getPM2_5());
-            printValue("PM10", pMSensor->atm.getPM10());
+        Serial.println("Concentration based on atmospheric environment (ug/m^3) --");
+        printValue("PM1.0", pMSensor->atm.getPM1());
+        printValue("PM2.5", pMSensor->atm.getPM2_5());
+        printValue("PM10", pMSensor->atm.getPM10());
 
-            // Maybe supported or not, depending on the sensor model
-            Serial.println("Number of particles with diameter of (/0.1L) --");
-            printValue(">=0.3um", pMSensor->count.get0_3());
-            printValue(">=0.5um", pMSensor->count.get0_5());
-            printValue(">=1.0um", pMSensor->count.get1());
-            printValue(">=2.5um", pMSensor->count.get2_5());
-            printValue(">=5.0um", pMSensor->count.get5());
-            printValue(">=10um", pMSensor->count.get10());
+        // Maybe supported or not, depending on the sensor model
+        Serial.println("Number of particles with diameter of (/0.1L) --");
+        printValue(">=0.3um", pMSensor->count.get0_3());
+        printValue(">=0.5um", pMSensor->count.get0_5());
+        printValue(">=1.0um", pMSensor->count.get1());
+        printValue(">=2.5um", pMSensor->count.get2_5());
+        printValue(">=5.0um", pMSensor->count.get5());
+        printValue(">=10um", pMSensor->count.get10());
 
-            Serial.println();
-        }
+        Serial.println();
     }
 }
 #endif
@@ -497,7 +485,6 @@ void updateDisplay()
     graph_co2.pushSprite(0, TFT_HEIGHT - SPRITE_HEIGHT);
     graph_co2.scroll(-1, 0);
 }
- 
 
 /*
 void printGasSensor()
@@ -571,6 +558,8 @@ void printGasSensor()
 
 void loop()
 {
+    loopCnt++;
+    feedWatchdog();
     if (airSensor.dataAvailable())
     {
         // get sensor data
@@ -599,28 +588,56 @@ void loop()
         else
             co2_level_now = LEVEL_WARNING2;
 
-      
         influxSensor.clearFields();
         influxSensor.addField("uptime", millis());
         influxSensor.addField("rssi", WiFi.RSSI());
-        influxSensor.addField("co2",co2_ppm);
-        influxSensor.addField("temp",temperature_c);
-        influxSensor.addField("humidity",humidity_p);
-        if (!client.writePoint(influxSensor)) {
-            Serial.print("InfluxDB write failed: ");
-            Serial.println(client.getLastErrorMessage());
-            Serial.println(client.getLastStatusCode());
+        influxSensor.addField("co2", co2_ppm);
+        influxSensor.addField("temp", temperature_c);
+        influxSensor.addField("humidity", humidity_p);
+#ifdef SUPPORT_PM330x
+        if (pMSensor != NULL)
+        {
+            if (!pMSensor->readSensor())
+            {
+                log_e("failed to read sensor");
+            }
+            else
+            {
+                influxSensor.addField("PM1", pMSensor->std.getPM1());
+                influxSensor.addField("PM2.5", pMSensor->std.getPM2_5());
+                influxSensor.addField("PM10", pMSensor->std.getPM10());
+                influxSensor.addField("PtCnt0.3", pMSensor->count.get0_3());
+                influxSensor.addField("PtCnt0.5", pMSensor->count.get0_5());
+                influxSensor.addField("PtCnt1.0", pMSensor->count.get1());
+                influxSensor.addField("PtCnt2.5", pMSensor->count.get2_5());
+                influxSensor.addField("PtCnt5.0", pMSensor->count.get5());
+                influxSensor.addField("PtCnt10", pMSensor->count.get10());
+                // printPMSensor();
+            }
+        }
+#endif
+        if (loopCnt % uploadEvery == 0)
+        {
+            loopCnt = 0;
+            if (!client.writePoint(influxSensor))
+            {
+                Serial.print("InfluxDB write failed: ");
+                Serial.println(client.getLastErrorMessage());
+                Serial.println(client.getLastStatusCode());
+            } else {
+                log_i("uploaded to influxdb.");
+            }
         }
     }
     else
+    {
         Serial.print(".");
-        //   printGasSensor();
-#ifdef SUPPORT_PM330x
-    printPMSensor();
-#endif
+    }
 
     if (co2_level_now == LEVEL_WARNING2)
+    {
         meepmeep();
+    }
     feedWatchdog();
 
     delay(loopDelay);

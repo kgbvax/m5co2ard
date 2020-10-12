@@ -1,0 +1,14 @@
+#ifndef SECRETS_H
+#define SECRETS_H
+
+#define WIFI_SSID "foom2m"
+//#define WIFI_SSID "Muh"
+#define WIFI_PASSWORD "finetobaccos"
+//#define X_DWEED_AUTH "eyJmaXJzdE5hbWUiOiJJbmdvbWFyIiwibGFzdE5hbWUiOiJPdHRlciIsInVzZXJuYW1lIjoiaW5nb21hci5vdHRlckB2YWx0ZWNoLW1vYmlsaXR5LmNvbSIsInJvbGUiOiJhZG1pbiIsImxhc3RMb2dpbiI6bnVsbCwiYWNjb3VudCI6W3sibmFtZSI6IlZBTFRFQ0hNT0JJTElUWSIsInJvbGUiOiJhZG1pbiJ9XSwiY29tcGFueSI6IlZBTFRFQ0hNT0JJTElUWSIsInZhbGlkaXR5IjoxNjAxNjQ4NTY1MTQyfQ==.03ed538629ade43f8143b15fffd3f76984b5f0a11a9024cb227632103dd62dd0"
+
+#define INFLUXDB_URL "https://westeurope-1.azure.cloud2.influxdata.com"
+#define INFLUXDB_TOKEN "mnaicZdhLp2kR9mBE_tN0Rc65V7GNXjrzrv9896QRRAEuGKkqHIttUxbybtnpKWPmfAEqWprwHkamb9H_fI03w=="
+#define INFLUXDB_ORG "ingomar.otter@valtech-mobility.com"
+#define INFLUXDB_BUCKET "co2sensor"
+
+#endif
