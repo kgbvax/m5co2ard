@@ -1,23 +1,29 @@
-#define AUDIO please
-#define SUPPORT_PM330x pronto
+#define AUDIO 1
+#define SUPPORT_PM330x 1
 #undef SUPPORT_MULTICHANNELGAS
+#define CORE_DEBUG_LEVEL 5
 
 //Europe/Berlin
+#ifndef TZ
 #define TZ "CET-1CEST,M3.5.0,M10.5.0/3"
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+#include "esp32-hal-log.h"
+#endif
 
 #include <Wire.h>
 
 #define ESP32_PARALLEL yes
+#define LGFX_AUTODETECT
+
 #include <M5Stack.h>
+#include <LovyanGFX.hpp>
 
 #include "time.h"
 
 //I/O
 #include "SparkFun_SCD30_Arduino_Library.h"
-
-#ifdef SUPPORT_MULTICHANNELGAS
-#include "MutichannelGasSensor.h"
-#endif
 
 #ifdef SUPPORT_PM330x
 #undef DEFAULT_I2C_ADDR
@@ -40,6 +46,9 @@ AudioOutputI2S *out;
 AudioFileSourceID3 *id3;
 #endif
 
+#include "wdt.h"
+#include "iolog.h"
+
 //networking
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -53,19 +62,10 @@ AudioFileSourceID3 *id3;
 //Include also InfluxClould 2 CA certificate
 #include <InfluxDbCloud.h>
 #include <InfluxDbClient.h>
+static int influxFailures=-5;
+
 
 //actual definition included from secrets.h
-
-//for watchdog
-#include "esp_system.h"
-const int loopTimeCtl = 0;
-hw_timer_t *timer = NULL;
-
-void IRAM_ATTR resetModule()
-{
-    ets_printf("reboot\n");
-    esp_restart();
-}
 
 #ifdef SUPPORT_PM330x
 Tomoto_HM330X *pMSensor;
@@ -80,15 +80,10 @@ TaskHandle_t ledUpdateTaskH;
 #define USE_WIFI
 const char *ssid{WIFI_SSID};         // write your WiFi SSID (2.4GHz)
 const char *password{WIFI_PASSWORD}; // write your WiFi password
-//const char *ntpServer = "europe.pool.ntp.org";
-//const long gmtOffset_sec = 3600;
-//const int daylightOffset_sec = 3600;
-//const String dweetThingName = "ottermuehle-co2ampel-2";
 
 const int watchdogTimeoutUs = 15 * 1000 * 1000; //in usec
-const int loopDelay = 5 * 1000;                 //main loop() delay in msec
-const uint8_t uploadEvery = 3;
-uint8_t loopCnt = 0;
+const int loopDelay = 7 * 1000;                 //main loop() delay in msec
+
 
 // sensor setting
 SCD30 airSensor;
@@ -114,8 +109,11 @@ enum
 };
 
 // variables
-TFT_eSprite graph_co2 = TFT_eSprite(&M5.Lcd);
+
+//TFT_eSprite graph_co2 = TFT_eSprite(&M5.Lcd);
 TFT_eSprite spr_values = TFT_eSprite(&M5.Lcd);
+TFT_eSprite theM = TFT_eSprite(&M5.Lcd);
+
 uint16_t co2_ppm;
 float temperature_c, humidity_p;
 int p_cau, p_war;
@@ -127,11 +125,14 @@ String macStr;
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
 Point influxSensor = Point("co2ard");
 
-#define TRIANGLE(x1, y1, x2, y2, x3, y3, col) M5.Lcd.fillTriangle(pad + (x1), pad + (y1), pad + (x2), pad + (y2), pad + (x3), pad + (y3), col)
+#define TRIANGLE(x1, y1, x2, y2, x3, y3, col) M5.Lcd.drawTriangle(pad + (x1), pad + (y1), pad + (x2), pad + (y2), pad + (x3), pad + (y3), col)
+//#define TRIFILLED(x1, y1, x2, y2, x3, y3, col) M5.Lcd.drawTriangle(pad + (x1), pad + (y1), pad + (x2), pad + (y2), pad + (x3), pad + (y3), col)
+
 void drawM(int pad, u16_t color)
 {
-    const int my = M5.Lcd.height() - pad * 2;
-    const int mx = M5.Lcd.width() - pad * 2;
+
+    const int my = /* M5.Lcd.height() */ 240 - pad * 2;
+    const int mx = /* M5.Lcd.width()*/ 320 - pad * 2;
 
     TRIANGLE(0, my / 2, mx / 2, my / 2, mx / 4, 0, color);                          // ▲ Links
     TRIANGLE(mx / 2, my / 2, mx / 2 + mx / 4, 0, mx, my / 2, color);                // ▲ Rechts
@@ -142,9 +143,10 @@ void drawM(int pad, u16_t color)
 
 void disp(const String msg)
 {
-    Serial.println(msg);
+    log_i("%s", msg);
     M5.Lcd.println(msg);
 }
+
 void displaySwStats()
 {
     M5.Lcd.fillScreen(BLACK);
@@ -177,10 +179,13 @@ int getPositionY(int ppm)
 //FRTOS task
 void updateLedTask(void *parameter)
 {
+    
     boolean left = false;
+ 
     for (;;)
     {
         left = !left;
+        
         if (co2_level_now == LEVEL_NORMAL)
         {
             for (uint8_t n = 0; n < M5STACK_FIRE_NEO_NUM_LEDS; n++)
@@ -231,14 +236,14 @@ void updateLedTask(void *parameter)
                 leds[n] = CRGB::DarkGray;
             }
         }
-        FastLED.show();
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
-}
+        if(left) 
+            leds[0]=CRGB::Black; 
+        else
+            leds[0]=CRGB::DarkBlue;
 
-void feedWatchdog()
-{
-    timerWrite(timer, 0); //reset timer (feed watchdog)
+        FastLED.show();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 void meepmeep()
@@ -257,43 +262,32 @@ void meepmeep()
         mp3 = new AudioGeneratorMP3();
         mp3->begin(id3, out);
 
-        Serial.println("mp3 play start");
+        log_d("mp3 play start");
         while (mp3->isRunning())
         {
             if (!mp3->loop())
                 mp3->stop();
         }
     }
-    Serial.println("mp3 play stop");
+    log_d("mp3 play stop");
     file->close();
     SPIFFS.end();
 
 #endif
 }
 
-void bailOut(const String reason)
-{
-    log_e("about to reset: %s", reason);
-    delay(250);
-    resetModule();
-}
+ 
 
 void setup()
 {
     Serial.begin(115200);
-    esp_log_level_set("*", ESP_LOG_VERBOSE);
 
-    //setup watchdog early to allow trigger even during setup
-    timer = timerBegin(0, 80, true); //timer 0, div 80
-    timerAttachInterrupt(timer, &resetModule, true);
-    timerAlarmWrite(timer, watchdogTimeoutUs, false); //set time in us
-    timerAlarmEnable(timer);                          //enable interrupt
+    setupWdt(60,"m5co2ard");
 
-    M5.begin();
-    M5.Power.begin();
-    M5.Lcd.fillScreen(BLACK);
+    M5.begin(true,false,true,true);
+ 
     int prev = -1;
-    for (int pad = 90; pad > 4; pad -= 9)
+    for (int pad = 90; pad > 4; pad -= 4)
     { //make some show for philip
         if (prev >= 0)
         {
@@ -304,6 +298,7 @@ void setup()
         delay(35);
         prev = pad;
     }
+
     feedWatchdog();
 
     uint8_t mac[6];
@@ -317,12 +312,6 @@ void setup()
     feedWatchdog();
 
     delay(3000);
-#ifdef MULTICHANNEL_GAS
-    gas.begin(0x04); //the default I2C address of the slave is 0x04
-    gas.powerOff();
-    Serial.print("Firmware Version = ");
-    Serial.println(gas.getVersion());
-#endif
 
     M5.Lcd.fillScreen(TFT_BLACK);
     M5.Lcd.setCursor(0, 0);
@@ -337,23 +326,22 @@ void setup()
     {
         delay(500);
         feedWatchdog();
-        Serial.print(".");
+        LOG_D(".","");
     }
     M5.Lcd.println("done");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.print(WiFi.localIP());
+    LOG_D("WiFi connected","");
+    LOG_I("IP address: %s", WiFi.localIP().toString().c_str());
+
     feedWatchdog();
+    delay(500);
+    
     //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     timeSync(TZ, "europe.pool.ntp.org", "pool.ntp.org", "time.nis.gov");
     if (!client.validateConnection())
     {
-        bailOut("Cant connect InfluxDB");
+        REBOOTWDT("Cant connect InfluxDB");
     }
-    else
-    {
-        Serial.println("influx cl status code " + String(client.getLastStatusCode()));
-    }
+    
 
     influxSensor.addTag("mac", macStr);
     influxSensor.addTag("SSID", WiFi.SSID());
@@ -361,7 +349,7 @@ void setup()
 
     if (!Wire.begin())
     {
-        bailOut("i2c init failed, resetting");
+        REBOOTWDT("i2c init failed");
     }
 #ifdef SUPPORT_PM330x
     // sensor setup
@@ -369,7 +357,7 @@ void setup()
 
     if (!pMSensor->begin())
     {
-        Serial.println("No HM330X PM sensor detected.");
+        LOG_W("No HM330X PM sensor detected.","");
         pMSensor = nullptr;
     }
 #endif
@@ -377,7 +365,7 @@ void setup()
     M5.Lcd.print("SCD30 setup...");
     if (airSensor.begin() == false)
     {
-        bailOut("Air sensor not detected. Please check wiring.");
+        REBOOTWDT("Air sensor not detected.");
     }
     airSensor.setMeasurementInterval(5);
     airSensor.setAltitudeCompensation(50);
@@ -386,13 +374,13 @@ void setup()
     airSensor.setAutoSelfCalibration(true);
 
     M5.Lcd.fillScreen(TFT_BLACK);
-    graph_co2.setColorDepth(8);
-    graph_co2.createSprite(SPRITE_WIDTH, SPRITE_HEIGHT);
-    graph_co2.fillSprite(TFT_BLACK);
-    p_cau = getPositionY(CO2_CAUTION_PPM);
-    p_war = getPositionY(CO2_WARNING_PPM);
-    graph_co2.fillRect(0, 0, SPRITE_WIDTH, p_cau + 1, getColor(50, 50, 0));
-    graph_co2.fillRect(0, 0, SPRITE_WIDTH, p_war + 1, getColor(50, 0, 0));
+    //graph_co2.setColorDepth(8);
+    //graph_co2.createSprite(SPRITE_WIDTH, SPRITE_HEIGHT);
+    //graph_co2.fillSprite(TFT_BLACK);
+    //p_cau = getPositionY(CO2_CAUTION_PPM);
+    //p_war = getPositionY(CO2_WARNING_PPM);
+    //graph_co2.fillRect(0, 0, SPRITE_WIDTH, p_cau + 1, getColor(50, 50, 0));
+    //graph_co2.fillRect(0, 0, SPRITE_WIDTH, p_war + 1, getColor(50, 0, 0));
 
     spr_values.setColorDepth(8);
     spr_values.createSprite(SPRITE_WIDTH, TFT_HEIGHT - SPRITE_HEIGHT);
@@ -410,9 +398,8 @@ void setup()
 
 void printValue(const char *label, int value)
 {
-    Serial.print(label);
-    Serial.print(": ");
-    Serial.println(value);
+    LOG_I("%s: %s\n",label,value);
+
 }
 
 #ifdef SUPPORT_PM330x
@@ -421,18 +408,18 @@ void printPMSensor()
     if (pMSensor != NULL)
     {
 
-        Serial.println("Concentration based on CF=1 standard particlate matter (ug/m^3) --");
+        log_d("Concentration based on CF=1 standard particlate matter (ug/m^3) --");
         printValue("PM1.0", pMSensor->std.getPM1());
         printValue("PM2.5", pMSensor->std.getPM2_5());
         printValue("PM10", pMSensor->std.getPM10());
 
-        Serial.println("Concentration based on atmospheric environment (ug/m^3) --");
+        log_d("Concentration based on atmospheric environment (ug/m^3) --");
         printValue("PM1.0", pMSensor->atm.getPM1());
         printValue("PM2.5", pMSensor->atm.getPM2_5());
         printValue("PM10", pMSensor->atm.getPM10());
 
         // Maybe supported or not, depending on the sensor model
-        Serial.println("Number of particles with diameter of (/0.1L) --");
+        log_d("Number of particles with diameter of (/0.1L) --");
         printValue(">=0.3um", pMSensor->count.get0_3());
         printValue(">=0.5um", pMSensor->count.get0_5());
         printValue(">=1.0um", pMSensor->count.get1());
@@ -440,7 +427,6 @@ void printPMSensor()
         printValue(">=5.0um", pMSensor->count.get5());
         printValue(">=10um", pMSensor->count.get10());
 
-        Serial.println();
     }
 }
 #endif
@@ -468,114 +454,25 @@ void updateDisplay()
         spr_values.printf("Time: %d:%d\n", timeinfo.tm_hour, timeinfo.tm_min);
     }
 
-    // draw lines
-    graph_co2.drawFastVLine(SPRITE_WIDTH - 1, 0, p_war + 1, getColor(50, 0, 0));
-    graph_co2.drawFastVLine(SPRITE_WIDTH - 1, p_war + 1, p_cau - p_war, getColor(50, 50, 0));
-
-    // draw co2
-    int32_t y = getPositionY(co2_ppm);
-    if (y > y_prev)
-        graph_co2.drawFastVLine(SPRITE_WIDTH - 1, y_prev, abs(y - y_prev) + 1, TFT_WHITE);
-    else
-        graph_co2.drawFastVLine(SPRITE_WIDTH - 1, y, abs(y - y_prev) + 1, TFT_WHITE);
-    y_prev = y;
-
-    // update
     spr_values.pushSprite(0, 0);
-    graph_co2.pushSprite(0, TFT_HEIGHT - SPRITE_HEIGHT);
-    graph_co2.scroll(-1, 0);
-}
-
-/*
-void printGasSensor()
-{
-    float c;
-    c = gas.measure_NH3();
-    Serial.print("The concentration of NH3 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_CO();
-    Serial.print("The concentration of CO is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_NO2();
-    Serial.print("The concentration of NO2 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_C3H8();
-    Serial.print("The concentration of C3H8 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_C4H10();
-    Serial.print("The concentration of C4H10 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_CH4();
-    Serial.print("The concentration of CH4 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_H2();
-    Serial.print("The concentration of H2 is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-
-    c = gas.measure_C2H5OH();
-    Serial.print("The concentration of C2H5OH is ");
-    if (c >= 0)
-        Serial.print(c);
-    else
-        Serial.print("invalid");
-    Serial.println(" ppm");
-}
-*/
+ }
 
 void loop()
 {
-    loopCnt++;
+    //loopCnt++;
     feedWatchdog();
     if (airSensor.dataAvailable())
     {
         // get sensor data
         co2_ppm = airSensor.getCO2();
-        Serial.print("co2(ppm):");
-        Serial.print(co2_ppm);
+        LOG_D("co2(ppm): %d", co2_ppm);
 
         temperature_c = airSensor.getTemperature();
-        Serial.print(" temp(C):");
-        Serial.print(temperature_c, 1);
+        LOG_D(" temp(C): %d", temperature_c);
 
         humidity_p = airSensor.getHumidity();
-        Serial.print(" humidity(%):");
-        Serial.print(humidity_p, 1);
+        LOG_D(" humidity(%): %d", humidity_p);
 
-        Serial.println();
         updateDisplay();
 
         // check co2 level
@@ -599,7 +496,7 @@ void loop()
         {
             if (!pMSensor->readSensor())
             {
-                log_e("failed to read sensor");
+                LOG_E("failed to read sensor","");
             }
             else
             {
@@ -616,22 +513,26 @@ void loop()
             }
         }
 #endif
-        if (loopCnt % uploadEvery == 0)
+        if (1)
         {
-            loopCnt = 0;
+            //loopCnt = 0;
             if (!client.writePoint(influxSensor))
             {
-                Serial.print("InfluxDB write failed: ");
-                Serial.println(client.getLastErrorMessage());
-                Serial.println(client.getLastStatusCode());
-            } else {
-                log_i("uploaded to influxdb.");
+                LOG_E("InfluxDB write failed: %s %d", client.getLastErrorMessage(), client.getLastStatusCode());
+                influxFailures++;
+                if (influxFailures>0) {
+                    REBOOTWDT("repeated influx fail");
+                }
+            }
+            else
+            {
+                LOG_D("uploaded to influxdb\n","");
             }
         }
     }
     else
     {
-        Serial.print(".");
+        LOG_V(".","");
     }
 
     if (co2_level_now == LEVEL_WARNING2)
