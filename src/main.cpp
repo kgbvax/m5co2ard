@@ -115,8 +115,8 @@ TFT_eSprite spr_values = TFT_eSprite(&M5.Lcd);
 TFT_eSprite theM = TFT_eSprite(&M5.Lcd);
 
 uint16_t co2_ppm;
-float temperature_c, humidity_p;
 int p_cau, p_war;
+float temperature_c, humidity_p;
 int elapsed_time = 0;
 int co2_level_last = LEVEL_NORMAL;
 int co2_level_now = LEVEL_NORMAL;
@@ -334,7 +334,7 @@ void setup()
 
     feedWatchdog();
     delay(500);
-    
+
     //configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     timeSync(TZ, "europe.pool.ntp.org", "pool.ntp.org", "time.nis.gov");
     if (!client.validateConnection())
@@ -465,13 +465,13 @@ void loop()
     {
         // get sensor data
         co2_ppm = airSensor.getCO2();
-        LOG_D("co2(ppm): %d", co2_ppm);
+        LOG_D("co2(ppm): %d ", co2_ppm);
 
         temperature_c = airSensor.getTemperature();
-        LOG_D(" temp(C): %d", temperature_c);
+        LOG_D(" temp(C): %f ", temperature_c);
 
         humidity_p = airSensor.getHumidity();
-        LOG_D(" humidity(%): %d", humidity_p);
+        LOG_D(" humidity(%): %f ", humidity_p);
 
         updateDisplay();
 
