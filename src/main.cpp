@@ -1,7 +1,8 @@
+//Feature Flags
 #define AUDIO 1
 #define SUPPORT_PM330x 1
-#undef SUPPORT_MULTICHANNELGAS
-#define CORE_DEBUG_LEVEL 5
+#define USE_STATSD 1
+
 
 //Europe/Berlin
 #ifndef TZ
@@ -63,6 +64,12 @@ AudioFileSourceID3 *id3;
 #include <InfluxDbCloud.h>
 #include <InfluxDbClient.h>
 static int influxFailures=-5;
+
+#ifdef USE_STATSD
+#include "statsd/statsd.h"
+WiFiUDP udp;  // or EthernetUDP, as appropriate.
+Statsd statsd(udp, "192.168.0.16", 8125);
+#endif
 
 
 //actual definition included from secrets.h
